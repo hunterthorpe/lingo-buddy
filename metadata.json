@@ -1,0 +1,5 @@
+{
+  "name": "LingoBuddy - AI Language Tutor",
+  "description": "An interactive language learning web app powered by Gemini. Practice speaking with an AI tutor in immersion or crosstalk mode to improve your fluency and grammar.",
+  "requestFramePermissions": []
+}
