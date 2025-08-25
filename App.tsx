@@ -3,7 +3,7 @@ import { LanguageSelector } from './components/LanguageSelector';
 import { ModeSelector } from './components/ModeSelector';
 import { MissionSelector } from './components/MissionSelector';
 import { ChatWindow } from './components/ChatWindow';
-import type { Language, ChatMessage, Mission } from './types';
+import type { Language, ChatMessage, Mission, Correction } from './types';
 import { ChatMode, Role } from './types';
 
 const API_ENDPOINT = 'https://5133u1gex0.execute-api.ap-southeast-2.amazonaws.com/lingoBuddy';
@@ -37,10 +37,40 @@ const App: React.FC = () => {
 
         return response.json();
     } catch (e: any) {
-        // This catches network errors (like CORS, DNS failure) that cause fetch to throw a TypeError.
         console.error('Network or fetch error:', e);
-        // Re-throw a more user-friendly error for the UI.
         throw new Error(`Could not connect to the LingoBuddy service. Please check your network connection and API configuration. (${e.message})`);
+    }
+  };
+
+  /**
+   * Safely parses the API response.
+   * For Crosstalk, it returns the text directly.
+   * For other modes, it tries to parse JSON, but falls back to plain text if parsing fails.
+  */
+  const parseApiResponse = (responseText: string, mode: ChatMode): { response: string; correction: Correction | null } => {
+    if (mode === ChatMode.CROSSTALK) {
+        return { response: responseText, correction: null };
+    }
+
+    // For IMMERSION and MISSIONS, we expect JSON but prepare for errors.
+    try {
+        if (!responseText || typeof responseText !== 'string') {
+            throw new Error("AI returned an empty or invalid response.");
+        }
+        const parsedData = JSON.parse(responseText);
+        
+        if (typeof parsedData.response !== 'string') {
+            throw new Error("AI response JSON is missing the required 'response' field.");
+        }
+
+        return {
+            response: parsedData.response,
+            correction: parsedData.correction || null,
+        };
+    } catch (e) {
+        console.warn("Could not parse AI response as JSON. Treating as plain text.", { responseText, error: e });
+        // Graceful fallback: treat the whole string as a plain text response from the model.
+        return { response: responseText, correction: null };
     }
   };
 
@@ -51,16 +81,13 @@ const App: React.FC = () => {
 
     try {
       const data = await callLingoBuddyApi("Start conversation", [], lang, mode, mission);
-      const responseText = data.text;
+      const { response, correction } = parseApiResponse(data.text, mode);
 
-      let firstMessage: ChatMessage;
-      if (mode === ChatMode.CROSSTALK) {
-        firstMessage = { role: Role.MODEL, text: responseText };
-      } else {
-        // Immersion or Mission mode expects a JSON response
-        const parsedData = JSON.parse(responseText);
-        firstMessage = { role: Role.MODEL, text: parsedData.response, correction: parsedData.correction || null };
-      }
+      const firstMessage: ChatMessage = { 
+        role: Role.MODEL, 
+        text: response, 
+        correction 
+      };
       setMessages([firstMessage]);
 
     } catch (e: any) {
@@ -90,7 +117,7 @@ const App: React.FC = () => {
     }
 
     const userMessage: ChatMessage = { role: Role.USER, text: messageText };
-    const historyForApi = messages; // History is the state *before* adding the new user message
+    const historyForApi = messages; 
 
     setMessages(prev => [...prev, userMessage]);
     setIsLoading(true);
@@ -98,23 +125,14 @@ const App: React.FC = () => {
 
     try {
       const data = await callLingoBuddyApi(messageText, historyForApi, targetLanguage, chatMode, selectedMission);
-      const responseText = data.text;
+      const { response: modelResponseText, correction: responseCorrection } = parseApiResponse(data.text, chatMode);
       
-      let modelMessage: ChatMessage;
-      let correction: ChatMessage['correction'] = null;
-
-      if (chatMode === ChatMode.CROSSTALK) {
-        modelMessage = { role: Role.MODEL, text: responseText };
-      } else {
-        const parsedData = JSON.parse(responseText);
-        modelMessage = { role: Role.MODEL, text: parsedData.response };
-        correction = parsedData.correction || null;
-      }
+      const modelMessage: ChatMessage = { role: Role.MODEL, text: modelResponseText };
       
       setMessages(prev => {
         // Find the user message we just added and attach the correction if it exists
         const updatedMessages = prev.map(msg => 
-            (msg === userMessage && correction) ? { ...msg, correction } : msg
+            (msg === userMessage && responseCorrection) ? { ...msg, correction: responseCorrection } : msg
         );
         return [...updatedMessages, modelMessage];
       });
@@ -141,7 +159,7 @@ const App: React.FC = () => {
   const renderContent = () => {
     if (error) {
        return (
-        <div className="flex flex-col items-center justify-center h-screen text-center max-w-2xl">
+        <div className="flex flex-col items-center justify-center h-screen text-center max-w-2xl mx-auto">
           <p className="text-red-400 text-xl mb-4">{error}</p>
           <button
             onClick={handleReset}
