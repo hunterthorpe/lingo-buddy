@@ -9,6 +9,7 @@ export const SUPPORTED_LANGUAGES: Language[] = [
   { code: 'ja', name: 'Japanese' },
   { code: 'ko', name: 'Korean' },
   { code: 'zh-CN', name: 'Mandarin Chinese' },
+  { code: 'el', name: 'Greek' },
 ];
 
 
